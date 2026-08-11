@@ -1,0 +1,9 @@
+{
+  "name": "ai-plugins",
+  "owner": {
+    "name": "jatitoam"
+  },
+  "description": "Claude plugins for AI-augmented engineering workflows",
+  "version": "0.1.0",
+  "plugins": []
+}

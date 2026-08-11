@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add *)",
+      "Bash(git commit -m *)",
+      "Bash(git push *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(python3 *)",
+      "Bash(./scripts/validate.sh)",
+      "Bash(./scripts/bump.sh *)",
+      "Bash(./scripts/new-plugin.sh *)"
+    ]
+  }
+}
