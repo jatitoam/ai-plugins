@@ -4,6 +4,14 @@
     "name": "jatitoam"
   },
   "description": "Claude plugins for AI-augmented engineering workflows",
-  "version": "0.1.0",
-  "plugins": []
+  "version": "0.1.1",
+  "plugins": [
+    {
+      "name": "code-general",
+      "source": "./plugins/code-general",
+      "description": "Delegation and orchestration policy — the delegation ladder, and the canon that authorizes it.",
+      "version": "0.1.0",
+      "category": "general"
+    }
+  ]
 }

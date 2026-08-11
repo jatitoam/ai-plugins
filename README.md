@@ -14,15 +14,16 @@ plugins/
     │       ├── scripts/     # Helper scripts invoked by the skill
     │       └── references/  # Reference docs read by Claude at runtime
     ├── commands/            # Slash commands (optional)
+    ├── hooks/hooks.json     # Hooks registered with the harness (optional)
     └── mcp/                 # MCP server definitions (optional)
 index.yaml                   # Top-level registry of all plugins
 ```
 
 ## Plugins
 
-| Plugin | Description | Skills | Commands | MCP Servers |
-|--------|-------------|--------|----------|-------------|
-| _none yet_ | Plugins will be added here. | — | — | — |
+| Plugin | Description | Skills | Commands | Hooks | MCP Servers |
+|--------|-------------|--------|----------|-------|-------------|
+| code-general | Delegation and orchestration policy — the delegation ladder, and the canon that authorizes it. | 1 | 1 | 1 | 0 |
 
 ## Plugin Concepts
 
@@ -67,7 +68,7 @@ The marketplace must be refreshed first — otherwise the CLI reads a stale regi
 
 1. Run `scripts/new-plugin.sh <plugin-id> "<display name>" "<description>" [category]`. This scaffolds `plugins/<plugin-id>/` — `.claude-plugin/plugin.json`, `plugin.yaml`, and an empty `skills/` dir at version `0.1.0` — and registers the plugin in `index.yaml` and `.claude-plugin/marketplace.json` for you. `category` defaults to `general`.
 2. Add each skill under `skills/<skill-id>/SKILL.md`. The frontmatter `name` must equal the directory name.
-3. List each skill in **both** registries: under `skills:` in `plugins/<plugin-id>/plugin.yaml` and under `skills:` in that plugin's `index.yaml` entry. The scaffold script does not do this for you.
+3. List each skill in **both** registries: under `skills:` in `plugins/<plugin-id>/plugin.yaml` and under `skills:` in that plugin's `index.yaml` entry. Same for any `hooks/hooks.json` under `hooks:` in both files — and `chmod +x` the scripts it invokes. The scaffold script does not do this for you.
 4. Update the README Plugins table by hand — add a row with the plugin id, description, and skill/command/mcp counts.
 5. Run `scripts/validate.sh` and fix any reported issues.
 
@@ -82,6 +83,7 @@ skills:
   - id: my-skill
     path: skills/my-skill
 commands: []
+hooks: []
 mcp_servers: []
 ```
 
