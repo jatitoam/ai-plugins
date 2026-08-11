@@ -15,6 +15,7 @@ enough and no third-party dependency is needed.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import textwrap
@@ -170,6 +171,12 @@ def render_index(data: dict) -> str:
             out.extend(f"      - {s}" for s in skills)
         else:
             out.append("    skills: []")
+        hooks = p.get("hooks") or []
+        if hooks:
+            out.append("    hooks:")
+            out.extend(f"      - {h}" for h in hooks)
+        else:
+            out.append("    hooks: []")
     return "\n".join(out) + "\n"
 
 
@@ -192,6 +199,9 @@ def render_plugin_yaml(data: dict) -> str:
     out.append("commands: []" if not data.get("commands") else "commands:")
     for c in data.get("commands") or []:
         out.append(f"  - {c}")
+    out.append("hooks: []" if not data.get("hooks") else "hooks:")
+    for h in data.get("hooks") or []:
+        out.append(f"  - {h}")
     out.append("mcp_servers: []" if not data.get("mcp_servers") else "mcp_servers:")
     for m in data.get("mcp_servers") or []:
         out.append(f"  - {m}")
@@ -335,6 +345,7 @@ def cmd_validate(_argv: list[str]) -> int:
 
     readme = README.read_text() if README.is_file() else ""
     skill_count = 0
+    hook_count = 0
 
     for pid in sorted(on_disk):
         root = PLUGINS_DIR / pid
@@ -437,6 +448,71 @@ def cmd_validate(_argv: list[str]) -> int:
                     f"{rel(py_path)} ({sorted(yaml_skills)})"
                 )
 
+        # Hooks.
+        declared_hooks = py.get("hooks") or []
+        for h in declared_hooks:
+            hpath = root / h
+            if check(hpath.is_file(), f"{pid}: hook '{h}' listed in {rel(py_path)} does not exist"):
+                hook_count += 1
+
+        hooks_dir = root / "hooks"
+        if hooks_dir.is_dir():
+            declared_hook_set = set(declared_hooks)
+            for found in sorted(hooks_dir.glob("*.json")):
+                found_rel = str(found.relative_to(root))
+                check(
+                    found_rel in declared_hook_set,
+                    f"{pid}: {found_rel} exists but is not listed in {rel(py_path)}",
+                )
+
+        # index.yaml hooks list must mirror plugin.yaml.
+        if idx_entry is not None:
+            idx_hooks = set(idx_entry.get("hooks") or [])
+            yaml_hooks = set(declared_hooks)
+            if idx_hooks != yaml_hooks:
+                errors.append(
+                    f"{pid}: hooks in {rel(INDEX)} ({sorted(idx_hooks)}) do not match "
+                    f"{rel(py_path)} ({sorted(yaml_hooks)})"
+                )
+
+        # Validate hooks.json content: valid JSON, and every referenced
+        # ${CLAUDE_PLUGIN_ROOT}/<path> script exists and is executable.
+        for h in declared_hooks:
+            hpath = root / h
+            if not hpath.is_file() or hpath.suffix != ".json":
+                continue
+            try:
+                hook_data = json.loads(hpath.read_text())
+            except json.JSONDecodeError as e:
+                errors.append(f"{pid}: {rel(hpath)} is not valid JSON ({e})")
+                continue
+
+            def walk_commands(node):
+                if isinstance(node, dict):
+                    for k, v in node.items():
+                        if k == "command" and isinstance(v, str):
+                            yield v
+                        else:
+                            yield from walk_commands(v)
+                elif isinstance(node, list):
+                    for item in node:
+                        yield from walk_commands(item)
+
+            for command in walk_commands(hook_data):
+                for m in re.finditer(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\s\"']+)", command):
+                    script_rel = m.group(1)
+                    script_path = root / script_rel
+                    if not script_path.is_file():
+                        errors.append(
+                            f"{pid}: {rel(hpath)} references missing script "
+                            f"{script_rel} (expected {rel(script_path)})"
+                        )
+                    elif not os.access(script_path, os.X_OK):
+                        errors.append(
+                            f"{pid}: {rel(hpath)} references non-executable script "
+                            f"{rel(script_path)}"
+                        )
+
         check(
             f"[{pid}]" in readme or f"| {pid} " in readme,
             f"{pid}: no row for this plugin in README.md — add one to the Plugins table",
@@ -449,7 +525,10 @@ def cmd_validate(_argv: list[str]) -> int:
         print("", file=sys.stderr)
         return 1
 
-    print(f"OK  {len(on_disk)} plugin(s), {skill_count} skill(s), versions in sync")
+    print(
+        f"OK  {len(on_disk)} plugin(s), {skill_count} skill(s), {hook_count} hook(s), "
+        "versions in sync"
+    )
     return 0
 
 
@@ -566,6 +645,7 @@ def cmd_new_plugin(argv: list[str]) -> int:
                 "version": version,
                 "skills": [],
                 "commands": [],
+                "hooks": [],
                 "mcp_servers": [],
             }
         )
@@ -593,6 +673,7 @@ def cmd_new_plugin(argv: list[str]) -> int:
             "description": description,
             "version": version,
             "skills": [],
+            "hooks": [],
         }
     )
     index["plugins"] = plugins

@@ -1,0 +1,14 @@
+name: code-general
+display_name: Code General
+description: >
+  Delegation and orchestration policy — the delegation ladder, and the
+  canon that authorizes it.
+version: 0.1.0
+skills:
+  - id: delegation-ladder
+    path: skills/delegation-ladder
+commands:
+  - install-delegation-canon
+hooks:
+  - hooks/hooks.json
+mcp_servers: []

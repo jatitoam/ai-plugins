@@ -18,12 +18,17 @@ There is no repo-wide runtime dependency. The repo's own tooling (`scripts/*.sh`
 
 ```
 plugins/<plugin-id>/
-├── plugin.yaml          # Plugin metadata and skill/command/mcp_server lists
+├── plugin.yaml          # Plugin metadata and skill/command/hook/mcp_server lists
 ├── skills/<skill-id>/
 │   ├── SKILL.md         # Instructs Claude how to behave when the skill is triggered
 │   ├── scripts/         # Scripts Claude invokes during skill execution
 │   └── references/      # Markdown docs Claude reads at runtime for context
+├── commands/<name>.md   # Slash commands, exposed as /<plugin-id>:<name> (optional)
+└── hooks/hooks.json     # Hooks the plugin registers with the harness (optional)
 ```
+
+Component directories live at the plugin root — never inside `.claude-plugin/`,
+which holds only `plugin.json`.
 
 - `index.yaml` — top-level registry; must be updated when adding a plugin
 - `.claude-plugin/marketplace.json` — marketplace distribution metadata
@@ -48,13 +53,15 @@ Skills may ship `scripts/` (in any language) and `references/`; the skill body s
 
 1. Run `scripts/new-plugin.sh <plugin-id> "<display name>" "<description>" [category]` — this creates `plugins/<plugin-id>/plugin.yaml`, `plugins/<plugin-id>/.claude-plugin/plugin.json`, an empty `skills/` directory, and registers the plugin in `index.yaml` and `.claude-plugin/marketplace.json` for you.
 2. Add skills under `plugins/<plugin-id>/skills/<skill-id>/SKILL.md`. The skill's frontmatter `name` must equal its directory name.
-3. List each skill in **both** registries — under `skills:` in `plugins/<plugin-id>/plugin.yaml` (as `- id:` / `path:`) and under `skills:` in that plugin's `index.yaml` entry (as a plain id). The scaffold script does not do this; `validate.sh` fails if the two lists disagree or if a skill directory is unlisted.
+3. List each skill in **both** registries — under `skills:` in `plugins/<plugin-id>/plugin.yaml` (as `- id:` / `path:`) and under `skills:` in that plugin's `index.yaml` entry (as a plain id). The scaffold script does not do this; `validate.sh` fails if the two lists disagree or if a skill directory is unlisted. Do the same under `hooks:` in both files for any `hooks/hooks.json` the plugin ships, and `chmod +x` every script the hook invokes.
 4. **Update `README.md`** — add a row to the Plugins table with the plugin id, description, and skill/command/mcp counts.
 5. Run `scripts/validate.sh` and fix any reported issues before committing.
 
 ### What `validate.sh` checks
 
 Every plugin directory is registered in both registries and vice versa; the five version fields agree per plugin and are valid semver; `plugin.json`/`plugin.yaml` names match the directory; each declared skill exists on disk with a `SKILL.md` carrying `name` and `description` frontmatter whose `name` matches its directory; no undeclared skill directories; the skill lists in `plugin.yaml` and `index.yaml` match; and each plugin has a row in the README Plugins table. It exits non-zero on any failure.
+
+For hooks it additionally checks: no undeclared `hooks/*.json` file on disk; every declared hook path exists; the `hooks:` lists in `plugin.yaml` and `index.yaml` match; and each `hooks.json` is valid JSON whose `${CLAUDE_PLUGIN_ROOT}/…` command references resolve to files that exist **and are executable**. A hook injects behavior into every session, so it is never allowed to go undeclared.
 
 ## Versioning
 
