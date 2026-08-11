@@ -23,7 +23,7 @@ index.yaml                   # Top-level registry of all plugins
 
 | Plugin | Description | Skills | Commands | Hooks | MCP Servers |
 |--------|-------------|--------|----------|-------|-------------|
-| code-general | Delegation and orchestration policy — the delegation ladder, and the canon that authorizes it. | 1 | 1 | 1 | 0 |
+| code-general | Delegation and orchestration policy — the delegation ladder, and the canon that authorizes it. **Requires post-install setup** — see [`plugins/code-general/README.md`](plugins/code-general/README.md). | 1 | 1 | 1 | 0 |
 
 ## Plugin Concepts
 
