@@ -47,8 +47,11 @@ print_help() {
   cat <<EOF
 Usage: $SCRIPT_NAME [--rc <path>] [--dry-run] [--uninstall] [--sync] [-h|--help]
 
-Wires (or removes) a zsh 'claude' wrapper function that appends this
-plugin's delegation canon via --append-system-prompt-file.
+Wires (or removes) a 'claude' wrapper function that appends this plugin's
+delegation canon via --append-system-prompt-file.
+
+The target rc file is detected from your login shell (\$SHELL) unless you
+name one explicitly. zsh and bash are supported; fish and Windows are not.
 
 The canon is copied from the plugin to a stable path so it survives plugin
 version bumps; the rc file points at that stable copy.
@@ -57,7 +60,8 @@ version bumps; the rc file points at that stable copy.
   stable copy: $CANON
 
 Options:
-  --rc <path>   Target rc file (default: \$SHELL_RC, else \${ZDOTDIR:-\$HOME}/.zshrc)
+  --rc <path>   Target rc file (default: \$SHELL_RC, else detected from \$SHELL:
+                zsh -> \${ZDOTDIR:-\$HOME}/.zshrc, bash -> ~/.bashrc or ~/.bash_profile)
   --dry-run     Print what would change; write nothing; exit 0
   --uninstall   Remove the managed block (or warn about an adopted wrapper)
   --sync        Refresh the stable canon copy only; touch no rc file. Silent on
@@ -101,13 +105,216 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -n "$RC_OVERRIDE" ]]; then
-  RC_FILE="$RC_OVERRIDE"
-elif [[ -n "${SHELL_RC:-}" ]]; then
-  RC_FILE="$SHELL_RC"
-else
-  RC_FILE="${ZDOTDIR:-$HOME}/.zshrc"
-fi
+# ---------------------------------------------------------------------------
+# Platform and shell detection
+# ---------------------------------------------------------------------------
+#
+# Resolving the rc file is deliberately deferred to do_install/do_uninstall
+# rather than done here: --sync touches no rc file at all, and it is what the
+# SessionStart hook runs on every session. It must never fail because the user
+# happens to be on a shell or platform this installer cannot wire up.
+
+RC_FILE=""
+DETECTED_SHELL=""
+
+# True (0) on Windows-native shells. WSL is deliberately excluded: it is a
+# Linux userland where the normal zsh/bash path works.
+is_windows() {
+  case "${OS:-}" in
+    Windows_NT) return 0 ;;
+  esac
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW*|MSYS*|CYGWIN*) return 0 ;;
+  esac
+  return 1
+}
+
+# Basename of the user's login shell ("zsh", "bash", "fish"), or empty if it
+# cannot be determined. $SHELL is the right signal and $BASH_VERSION is not:
+# this script always runs under bash via its shebang, whatever shell the user
+# actually lives in.
+#
+# Must always succeed: the caller assigns it with DETECTED_SHELL="$(detect_shell)",
+# and a nonzero return from a plain assignment kills the script under `set -e`
+# with no diagnostic at all — the exact silent failure this file exists to stop.
+# $SHELL set-but-empty is routine under launchd, systemd, CI and `docker exec`.
+detect_shell() {
+  local s="${SHELL:-}"
+  if [[ -n "$s" ]]; then
+    printf '%s' "${s##*/}"
+  fi
+  return 0
+}
+
+# Prints the rc file a given shell actually reads, or nothing if this script
+# does not support that shell.
+default_rc_for_shell() {
+  local shell_name="$1"
+  local candidates=()
+  case "$shell_name" in
+    zsh)
+      printf '%s' "${ZDOTDIR:-$HOME}/.zshrc"
+      return 0
+      ;;
+    bash)
+      # Which file bash reads depends on how the terminal starts it, and the
+      # answer differs per platform. Terminal.app and iTerm start *login*
+      # shells, which read .bash_profile/.bash_login/.profile and never .bashrc
+      # unless one of those sources it — so on Darwin, preferring an existing
+      # .bashrc would reintroduce the silent failure this detection exists to
+      # prevent. Most Linux terminals start interactive non-login shells, which
+      # read .bashrc. Only files the shell would actually source are candidates;
+      # within that set, prefer one that already exists.
+      if [[ "$(uname -s 2>/dev/null || true)" == "Darwin" ]]; then
+        candidates=("$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile")
+      else
+        candidates=("$HOME/.bashrc")
+      fi
+      local f
+      for f in "${candidates[@]}"; do
+        [[ -f "$f" ]] && { printf '%s' "$f"; return 0; }
+      done
+      printf '%s' "${candidates[0]}"
+      return 0
+      ;;
+  esac
+  return 0
+}
+
+# Follows a symlink chain to the file that actually holds the content. Dotfiles
+# are commonly symlinks into a managed repo (~/.zshrc -> ~/dotfiles/zshrc), and
+# writing via `mv` would replace the *link* with a regular file — silently
+# detaching the user's repo while reporting success. `readlink -f` is not
+# portable to older macOS, hence the loop. Always succeeds; on a cycle or an
+# unreadable link it returns the path unchanged.
+resolve_symlink() {
+  local p="$1"
+  local target dir i=0
+  while [[ -L "$p" ]]; do
+    i=$((i + 1))
+    if [[ "$i" -gt 20 ]]; then
+      printf '%s' "$p"
+      return 0
+    fi
+    target="$(readlink "$p" 2>/dev/null || true)"
+    if [[ -z "$target" ]]; then
+      printf '%s' "$p"
+      return 0
+    fi
+    if [[ "$target" == /* ]]; then
+      p="$target"
+    else
+      dir="$(dirname "$p")"
+      p="$dir/$target"
+    fi
+  done
+  printf '%s' "$p"
+  return 0
+}
+
+# Sets RC_FILE (and DETECTED_SHELL). $1 is "install" (refuse when the target
+# cannot be determined safely) or "uninstall" (exit 0 — there is nothing this
+# script could have written on a shell it refuses to write to).
+resolve_rc_file() {
+  local mode="${1:-install}"
+
+  if is_windows; then
+    {
+      echo "$SCRIPT_NAME: error: Windows is not supported (for now)."
+      echo "$SCRIPT_NAME: the wrapper is a POSIX shell function written into a shell rc file;"
+      echo "$SCRIPT_NAME: there is no cmd.exe or PowerShell equivalent here yet."
+      echo "$SCRIPT_NAME: under WSL, run this from inside the Linux userland instead."
+    } >&2
+    exit 1
+  fi
+
+  DETECTED_SHELL="$(detect_shell)"
+
+  # fish is refused even with an explicit --rc: the managed block is POSIX
+  # function syntax, which fish cannot parse. Writing it into config.fish would
+  # break shell startup outright, not merely fail to take effect.
+  if [[ "$DETECTED_SHELL" == "fish" ]]; then
+    if [[ "$mode" == "uninstall" ]]; then
+      echo "$SCRIPT_NAME: fish detected; this script never writes a wrapper for fish. Nothing to uninstall." >&2
+      exit 0
+    fi
+    {
+      echo "$SCRIPT_NAME: error: fish is not supported — its syntax cannot parse the POSIX function this script writes."
+      echo "$SCRIPT_NAME: add the equivalent to your config.fish by hand:"
+      echo "$SCRIPT_NAME:"
+      echo "$SCRIPT_NAME:     function claude"
+      echo "$SCRIPT_NAME:         command claude --append-system-prompt-file $CANON \$argv"
+      echo "$SCRIPT_NAME:     end"
+      echo "$SCRIPT_NAME:"
+      echo "$SCRIPT_NAME: then copy the canon into place yourself:"
+      echo "$SCRIPT_NAME:     mkdir -p $(dirname "$CANON") && cp $PLUGIN_CANON $CANON"
+    } >&2
+    exit 1
+  fi
+
+  local implied
+  implied="$(default_rc_for_shell "$DETECTED_SHELL")"
+
+  if [[ -n "$RC_OVERRIDE" ]]; then
+    RC_FILE="$RC_OVERRIDE"
+  elif [[ -n "${SHELL_RC:-}" ]]; then
+    RC_FILE="$SHELL_RC"
+  else
+    RC_FILE="$implied"
+  fi
+
+  if [[ -z "$RC_FILE" ]]; then
+    # Unsupported or undetectable shell, and no explicit target given. Guessing
+    # here is what produced the silent failure this function prevents: a valid
+    # block written into a file the user's shell never reads.
+    if [[ "$mode" == "uninstall" ]]; then
+      echo "$SCRIPT_NAME: could not determine an rc file for shell '${DETECTED_SHELL:-unknown}'; pass --rc <path> if you wired one up by hand." >&2
+      exit 0
+    fi
+    {
+      local shell_desc
+      if [[ -z "${SHELL+set}" ]]; then
+        shell_desc="\$SHELL is unset"
+      elif [[ -z "$SHELL" ]]; then
+        shell_desc="\$SHELL is set but empty"
+      else
+        shell_desc="\$SHELL=$SHELL"
+      fi
+      echo "$SCRIPT_NAME: error: unsupported or undetectable login shell ($shell_desc)."
+      echo "$SCRIPT_NAME: this script wires up zsh and bash automatically."
+      echo "$SCRIPT_NAME: if your shell reads a POSIX-syntax rc file, name it explicitly:"
+      echo "$SCRIPT_NAME:     $SCRIPT_NAME --rc <path-to-your-rc-file>"
+    } >&2
+    exit 1
+  fi
+
+  if [[ -L "$RC_FILE" ]]; then
+    local resolved
+    resolved="$(resolve_symlink "$RC_FILE")"
+    if [[ -n "$resolved" && "$resolved" != "$RC_FILE" ]]; then
+      echo "$SCRIPT_NAME: note: $RC_FILE is a symlink; writing through it to $resolved." >&2
+      RC_FILE="$resolved"
+    fi
+  fi
+
+  # A path that exists but is not a regular file cannot be an rc file, and `mv`
+  # into a directory *succeeds* — it drops the temp file inside and installs
+  # nothing, while every message downstream reports success.
+  if [[ -e "$RC_FILE" && ! -f "$RC_FILE" ]]; then
+    echo "$SCRIPT_NAME: error: $RC_FILE exists but is not a regular file; refusing to write to it." >&2
+    exit 1
+  fi
+
+  # An explicit target that contradicts the detected shell is allowed — the user
+  # said where — but it gets called out, because a wrapper in a file the login
+  # shell never reads fails silently rather than loudly.
+  if [[ -n "$RC_OVERRIDE" || -n "${SHELL_RC:-}" ]]; then
+    if [[ -n "$implied" && "$implied" != "$RC_FILE" ]]; then
+      echo "$SCRIPT_NAME: note: targeting $RC_FILE, but your login shell (${DETECTED_SHELL:-unknown}) reads $implied." >&2
+      echo "$SCRIPT_NAME: note: make sure $RC_FILE is sourced at startup, or the wrapper will never load." >&2
+    fi
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # Temp file bookkeeping / cleanup
@@ -129,13 +336,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Creates a temp file beside the rc file and reports its path in TMP_LAST.
+# It sets a global rather than printing one, deliberately: callers would write
+# `t="$(mk_tmp)"`, which runs the TMP_FILES append inside a command-substitution
+# subshell, so the parent's cleanup trap would never learn the file exists and
+# any failure before the `mv` would strand it in the user's home directory.
+TMP_LAST=""
 mk_tmp() {
   local dir
   dir="$(dirname "$RC_FILE")"
-  local t
-  t="$(mktemp "$dir/.install-canon.XXXXXX")"
-  TMP_FILES+=("$t")
-  printf '%s' "$t"
+  TMP_LAST="$(mktemp "$dir/.install-canon.XXXXXX")"
+  TMP_FILES+=("$TMP_LAST")
+}
+
+# Prints a file's permission bits (e.g. 644). Empty if they cannot be read.
+file_mode() {
+  stat -f '%OLp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null || true
 }
 
 # ---------------------------------------------------------------------------
@@ -194,6 +410,26 @@ read_file_or_empty() {
 has_managed_block() {
   local content="$1"
   grep -qxF "$MARKER_BEGIN" <<<"$content" && grep -qxF "$MARKER_END" <<<"$content"
+}
+
+# Both slicing functions below assume BEGIN precedes END. If a hand edit or a
+# bad merge inverted them, head/tail ranges overlap and the file *duplicates*
+# content on every run instead of being rewritten. Refuse and let the user look.
+assert_markers_ordered() {
+  local content="$1"
+  local begin_line end_line
+  begin_line="$(find_line_number "$content" "$MARKER_BEGIN")"
+  end_line="$(find_line_number "$content" "$MARKER_END")"
+  if [[ -z "$begin_line" || -z "$end_line" || "$begin_line" -ge "$end_line" ]]; then
+    {
+      echo "$SCRIPT_NAME: error: the managed-block markers in $RC_FILE are out of order"
+      echo "$SCRIPT_NAME: (begin at line ${begin_line:-none}, end at line ${end_line:-none})."
+      echo "$SCRIPT_NAME: rewriting from here would duplicate content rather than replace it."
+      echo "$SCRIPT_NAME: fix the block by hand — it runs from '$MARKER_BEGIN'"
+      echo "$SCRIPT_NAME: to '$MARKER_END' — then re-run."
+    } >&2
+    exit 1
+  fi
 }
 
 # Prints the line number (1-based) of the first line assigning
@@ -316,8 +552,20 @@ rewrite_canon_var_line() {
     old_line="$(grep "^${CANON_VAR_NAME}=" <<<"$content" | head -n1 || true)"
     prev_comment="${PREV_MARKER_PREFIX}${old_line#${CANON_VAR_NAME}=}"
   fi
-  awk -v var="$CANON_VAR_NAME" -v newval="$new_value_quoted" -v prev="$prev_comment" '
-    BEGIN { done = 0; pat = "^" var "=" }
+  # Values arrive via the environment, not `awk -v`: -v processes backslash
+  # escapes in the assigned value, so a path containing \t would be recorded
+  # (and later restored) as a literal tab. This is the one path whose entire
+  # job is faithful restoration of the user's original line.
+  CANON_AWK_VAR="$CANON_VAR_NAME" \
+  CANON_AWK_NEW="$new_value_quoted" \
+  CANON_AWK_PREV="$prev_comment" \
+  awk '
+    BEGIN {
+      var = ENVIRON["CANON_AWK_VAR"]
+      newval = ENVIRON["CANON_AWK_NEW"]
+      prev = ENVIRON["CANON_AWK_PREV"]
+      done = 0; pat = "^" var "="
+    }
     !done && $0 ~ pat {
       if (prev != "") print prev
       print var "=" newval
@@ -335,8 +583,17 @@ restore_canon_var_line() {
   local prev_value
   prev_value="$(grep "^${PREV_MARKER_PREFIX}" <<<"$content" | head -n1 || true)"
   prev_value="${prev_value#${PREV_MARKER_PREFIX}}"
-  awk -v var="$CANON_VAR_NAME" -v oldval="$prev_value" -v prefix="$PREV_MARKER_PREFIX" '
-    BEGIN { done = 0; pat = "^" var "="; ppat = "^" prefix }
+  # Via the environment, not `awk -v` — see rewrite_canon_var_line.
+  CANON_AWK_VAR="$CANON_VAR_NAME" \
+  CANON_AWK_OLD="$prev_value" \
+  CANON_AWK_PREFIX="$PREV_MARKER_PREFIX" \
+  awk '
+    BEGIN {
+      var = ENVIRON["CANON_AWK_VAR"]
+      oldval = ENVIRON["CANON_AWK_OLD"]
+      prefix = ENVIRON["CANON_AWK_PREFIX"]
+      done = 0; pat = "^" var "="; ppat = "^" prefix
+    }
     $0 ~ ppat { next }
     !done && $0 ~ pat { print var "=" oldval; done = 1; next }
     { print }
@@ -374,6 +631,13 @@ backup_rc() {
   local ts
   ts="$(date +%Y%m%d-%H%M%S)"
   local backup="${RC_FILE}.bak.${ts}"
+  # Two runs in the same second must not overwrite the first run's backup —
+  # that backup may be the only copy of the pre-install rc file.
+  local n=1
+  while [[ -e "$backup" ]]; do
+    backup="${RC_FILE}.bak.${ts}.${n}"
+    n=$((n + 1))
+  done
   cp "$RC_FILE" "$backup"
   # rc files routinely hold exported secrets; don't widen their exposure.
   chmod 600 "$backup"
@@ -384,10 +648,18 @@ backup_rc() {
 write_rc() {
   local rc_file="$1"
   local new_content="$2"
+  # Preserve the rc file's existing permissions: mktemp creates at 600, and
+  # that mode would otherwise survive the `mv` and silently tighten a file the
+  # user may deliberately keep group- or world-readable.
+  local mode=""
+  [[ -f "$rc_file" ]] && mode="$(file_mode "$rc_file")"
+
   local tmp
-  tmp="$(mk_tmp)"
+  mk_tmp
+  tmp="$TMP_LAST"
   printf '%s\n' "$new_content" >"$tmp"
   mv "$tmp" "$rc_file"
+  [[ -n "$mode" ]] && chmod "$mode" "$rc_file"
   # mv succeeded; remove from cleanup list so trap doesn't try to delete
   # the now-relocated (nonexistent at tmp path) file.
   local kept=()
@@ -409,8 +681,8 @@ write_rc() {
 # ---------------------------------------------------------------------------
 
 do_install() {
+  resolve_rc_file install
   require_canon
-  [[ "$DRY_RUN" -eq 1 ]] || sync_canon create
 
   local old_content
   old_content="$(read_file_or_empty "$RC_FILE")"
@@ -419,6 +691,7 @@ do_install() {
   local action_desc=""
 
   if has_managed_block "$old_content"; then
+    assert_markers_ordered "$old_content"
     local block
     block="$(build_managed_block)"
     new_content="$(replace_managed_block "$old_content" "$block")"
@@ -426,6 +699,21 @@ do_install() {
   else
     local var_line
     var_line="$(find_canon_var_line "$old_content")"
+    # Adopting requires a wrapper to adopt. A bare variable assignment with no
+    # claude() function around it installs nothing, and reporting success there
+    # sends the user off to run `type claude` on a wrapper that doesn't exist —
+    # the likely path being someone who followed half of the refusal message
+    # below and then re-ran.
+    if [[ -n "$var_line" ]] && ! has_claude_function "$old_content"; then
+      {
+        echo "$SCRIPT_NAME: error: $RC_FILE has a ${CANON_VAR_NAME}= line but no claude() function to use it."
+        echo "$SCRIPT_NAME: setting the variable alone installs nothing."
+        echo "$SCRIPT_NAME: either delete that line and re-run (this script will write the whole wrapper),"
+        echo "$SCRIPT_NAME: or add a claude() function that passes:"
+        echo "$SCRIPT_NAME:     --append-system-prompt-file \"\$${CANON_VAR_NAME}\""
+      } >&2
+      exit 1
+    fi
     if [[ -n "$var_line" ]]; then
       local quoted="\"$CANON\""
       new_content="$(rewrite_canon_var_line "$old_content" "$quoted")"
@@ -461,12 +749,17 @@ do_install() {
   fi
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
+    echo "$SCRIPT_NAME: [dry-run] login shell: ${DETECTED_SHELL:-unknown}; target rc: $RC_FILE"
     echo "$SCRIPT_NAME: [dry-run] would copy $PLUGIN_CANON -> $CANON"
     echo "$SCRIPT_NAME: [dry-run] would then: $action_desc in $RC_FILE"
     echo "$SCRIPT_NAME: [dry-run] --- diff ---"
     diff <(printf '%s\n' "$old_content") <(printf '%s\n' "$new_content") || true
     return 0
   fi
+
+  # Deferred until every refusal above has passed: a refused install must not
+  # leave the stable canon copy behind on a machine it never wired up.
+  sync_canon create
 
   if [[ ! -f "$RC_FILE" ]]; then
     echo "$SCRIPT_NAME: $RC_FILE does not exist; it will be created."
@@ -501,6 +794,8 @@ EOF
 # ---------------------------------------------------------------------------
 
 do_uninstall() {
+  resolve_rc_file uninstall
+
   local old_content
   old_content="$(read_file_or_empty "$RC_FILE")"
 
@@ -510,6 +805,7 @@ do_uninstall() {
   fi
 
   if has_managed_block "$old_content"; then
+    assert_markers_ordered "$old_content"
     local new_content
     new_content="$(remove_managed_block "$old_content")"
 
@@ -569,6 +865,25 @@ do_uninstall() {
   fi
 
   echo "$SCRIPT_NAME: no managed block and no adopted wrapper found for this plugin's canon path in $RC_FILE; nothing to do."
+
+  # Versions of this script before shell detection wrote the block to
+  # ${ZDOTDIR:-$HOME}/.zshrc regardless of which shell the user actually ran,
+  # so a bash user who installed back then has a block sitting in a file this
+  # run never looks at. Point at it instead of leaving them to find it.
+  local other found=""
+  for other in "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do
+    [[ "$other" == "$RC_FILE" || ! -f "$other" ]] && continue
+    if grep -qxF "$MARKER_BEGIN" "$other" 2>/dev/null; then
+      found="$found $other"
+    fi
+  done
+  if [[ -n "$found" ]]; then
+    {
+      echo "$SCRIPT_NAME: note: a managed block from this plugin is still present in:$found"
+      echo "$SCRIPT_NAME: note: (earlier versions wrote to ~/.zshrc regardless of your login shell)."
+      echo "$SCRIPT_NAME: note: remove it with: $SCRIPT_NAME --uninstall --rc <that file>"
+    } >&2
+  fi
 }
 
 # ---------------------------------------------------------------------------

@@ -141,11 +141,17 @@ and confirmation steps. Directly:
 ```
 
 The script edits the user's shell rc file. Always show the `--dry-run` output and
-get explicit confirmation before running it for real. It targets **zsh**
-(`${ZDOTDIR:-$HOME}/.zshrc` and a `claude()` shell function); bash users can
-point it elsewhere with `--rc`, and fish users need to write the wrapper by hand.
-It refuses to append its own wrapper when it finds an existing `claude()`
-definition it did not write, rather than shadowing your configuration.
+get explicit confirmation before running it for real. It detects the login shell
+from `$SHELL` and picks the rc file that shell actually reads — zsh
+(`${ZDOTDIR:-$HOME}/.zshrc`) and bash (`~/.bashrc` or `~/.bash_profile`,
+whichever exists, platform-appropriate when neither does). It **refuses** rather
+than guessing on fish (its syntax cannot parse the POSIX function, so it prints
+the hand-written equivalent), on Windows-native shells (unsupported for now; use
+WSL), and on any other shell unless you name the target with `--rc <path>`. An
+explicit `--rc`/`SHELL_RC` that contradicts the detected shell is honored, with a
+warning that the file must actually be sourced at startup. It also refuses to
+append its own wrapper when it finds an existing `claude()` definition it did not
+write, rather than shadowing your configuration.
 
 The rc file must never point at this plugin's copy of the canon directly:
 installed plugins live at a version-scoped path
