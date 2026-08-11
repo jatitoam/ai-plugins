@@ -5,7 +5,7 @@ plugins:
     description: >
       Delegation and orchestration policy — the delegation ladder, and the
       canon that authorizes it.
-    version: 0.1.1
+    version: 0.2.0
     skills:
       - delegation-ladder
     hooks:
