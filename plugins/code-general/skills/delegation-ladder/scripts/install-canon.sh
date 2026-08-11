@@ -462,7 +462,7 @@ do_install() {
 
   if [[ "$DRY_RUN" -eq 1 ]]; then
     echo "$SCRIPT_NAME: [dry-run] would copy $PLUGIN_CANON -> $CANON"
-    echo "$SCRIPT_NAME: [dry-run] would $action_desc in $RC_FILE"
+    echo "$SCRIPT_NAME: [dry-run] would then: $action_desc in $RC_FILE"
     echo "$SCRIPT_NAME: [dry-run] --- diff ---"
     diff <(printf '%s\n' "$old_content") <(printf '%s\n' "$new_content") || true
     return 0
