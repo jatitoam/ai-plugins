@@ -1,18 +1,21 @@
-# AI Plugins — Claude Plugin Marketplace
+# AI Plugins — Claude Code and Codex Marketplace
 
-A curated collection of Claude plugins — skills, slash commands, and MCP servers — for AI-augmented engineering workflows.
+A curated collection of cross-agent skills and host-specific plugin adapters
+for AI-augmented engineering workflows.
 
 ## Structure
 
 ```
 plugins/
 └── <plugin-id>/
+    ├── .codex-plugin/plugin.json   # Codex manifest
+    ├── .claude-plugin/plugin.json  # Claude Code manifest
     ├── plugin.yaml          # Plugin metadata
     ├── skills/
     │   └── <skill-id>/
     │       ├── SKILL.md     # Skill definition (triggers, steps, behavior)
     │       ├── scripts/     # Helper scripts invoked by the skill
-    │       └── references/  # Reference docs read by Claude at runtime
+    │       └── references/  # Shared and host-specific runtime guidance
     ├── commands/            # Slash commands (optional)
     ├── hooks/hooks.json     # Hooks registered with the harness (optional)
     └── mcp/                 # MCP server definitions (optional)
@@ -23,23 +26,25 @@ index.yaml                   # Top-level registry of all plugins
 
 | Plugin | Description | Skills | Commands | Hooks | MCP Servers |
 |--------|-------------|--------|----------|-------|-------------|
-| code-general | Delegation and orchestration policy — the delegation ladder, and the canon that authorizes it. **Requires post-install setup** — see [`plugins/code-general/README.md`](plugins/code-general/README.md). | 1 | 1 | 1 | 0 |
+| code-general | Cross-agent delegation and orchestration policy with Claude Code and Codex adapters. Claude's standing-authorization canon is optional. | 1 | 1 | 1 | 0 |
 
 ## Plugin Concepts
 
 | Concept | What it is |
 |---------|-----------|
-| **Skill** | A `SKILL.md` file that instructs Claude to follow a specific multi-step workflow when triggered by certain user phrases. Can include helper scripts and reference documents. |
+| **Skill** | A portable `SKILL.md` workflow shared by compatible agents. Host-specific behavior belongs in adapter references. |
 | **Command** | A slash command (e.g. `/bump`) that invokes a skill or workflow directly. |
-| **MCP Server** | A Model Context Protocol server that exposes tools, resources, or prompts to Claude. |
+| **MCP Server** | A Model Context Protocol server that exposes tools, resources, or prompts to an agent. |
 
 ## Bumping a Plugin Version
 
-Five places must be updated in sync — the CLI reads each one for a different purpose:
+Five plugin-version fields must stay synchronized, and the independent Claude
+marketplace cache version must also advance on every release:
 
 | File | Why it must be updated |
 |------|------------------------|
 | `plugins/<plugin-id>/.claude-plugin/plugin.json` | Version authority for `claude plugin update` — **this is what the CLI checks** |
+| `plugins/<plugin-id>/.codex-plugin/plugin.json` | Version and metadata read by Codex |
 | `plugins/<plugin-id>/plugin.yaml` | Canonical plugin definition |
 | `.claude-plugin/marketplace.json` (plugin entry) | Repo registry used by `claude plugin install` |
 | `.claude-plugin/marketplace.json` (top-level `version`) | Controls whether `claude plugin marketplace update` fetches fresh data at all |
@@ -51,7 +56,10 @@ This is enforced by tooling rather than discipline. Run:
 scripts/bump.sh <plugin-id> <major|minor|patch>
 ```
 
-This updates all five fields atomically — the four plugin-scoped fields to the new plugin version, plus the marketplace top-level `version`, which gets its own independent patch bump — and prints a before→after line per file. It refuses to run if the five are already out of sync. A `/bump` slash command (`.claude/commands/bump.md`) wraps this script.
+This updates all six fields atomically — the five plugin-scoped fields to the
+new plugin version, plus the marketplace top-level `version`, which gets its
+own independent patch bump. A `/bump` slash command
+(`.claude/commands/bump.md`) wraps this script.
 
 ## Updating the plugin locally
 
@@ -66,7 +74,7 @@ The marketplace must be refreshed first — otherwise the CLI reads a stale regi
 
 ## Adding a New Plugin
 
-1. Run `scripts/new-plugin.sh <plugin-id> "<display name>" "<description>" [category]`. This scaffolds `plugins/<plugin-id>/` — `.claude-plugin/plugin.json`, `plugin.yaml`, and an empty `skills/` dir at version `0.1.0` — and registers the plugin in `index.yaml` and `.claude-plugin/marketplace.json` for you. `category` defaults to `general`.
+1. Run `scripts/new-plugin.sh <plugin-id> "<display name>" "<description>" [category]`. This scaffolds both client manifests, `plugin.yaml`, and an empty `skills/` directory at version `0.1.0`, then registers the plugin in `index.yaml`, `.claude-plugin/marketplace.json`, and `.agents/plugins/marketplace.json`. `category` defaults to `general`.
 2. Add each skill under `skills/<skill-id>/SKILL.md`. The frontmatter `name` must equal the directory name.
 3. List each skill in **both** registries: under `skills:` in `plugins/<plugin-id>/plugin.yaml` and under `skills:` in that plugin's `index.yaml` entry. Same for any `hooks/hooks.json` under `hooks:` in both files — and `chmod +x` the scripts it invokes. The scaffold script does not do this for you.
 4. Update the README Plugins table by hand — add a row with the plugin id, description, and skill/command/mcp counts.
@@ -93,7 +101,7 @@ mcp_servers: []
 ---
 name: skill-name
 description: >
-  One or two sentences describing when Claude should activate this skill.
+  One or two sentences describing when a compatible agent should activate this skill.
   Include trigger phrases.
 ---
 ```

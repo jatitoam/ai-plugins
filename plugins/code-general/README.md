@@ -1,20 +1,21 @@
 # code-general
 
-Delegation and orchestration policy for Claude Code: the `delegation-ladder`
-skill (a routing gate that decides what to delegate, and to which model tier,
-before work starts) plus the canon that authorizes it — the standing,
-pre-granted permission to spawn subagents without asking each time.
+Cross-agent delegation and orchestration policy. The `delegation-ladder` skill
+contains a portable routing gate, then loads a Claude Code or Codex adapter for
+host-specific tools, models, and authorization rules.
 
-## Install
+## Install in Claude Code
 
 ```bash
 claude plugin marketplace add jatitoam/ai-plugins
 claude plugin install code-general@ai-plugins
 ```
 
-## Post-install setup (required)
+## Optional Claude Code standing authorization
 
-The delegation grant is enforced at three layers, strongest first:
+The portable skill works without setup. Its Claude integration has three
+layers, but only the separately installed system-prompt canon grants standing
+authorization:
 
 | Layer | Mechanism | Active after install? |
 |---|---|---|
@@ -22,14 +23,9 @@ The delegation grant is enforced at three layers, strongest first:
 | Session context | This plugin's `hooks/hooks.json` SessionStart hook, injecting a pointer to the skill | Yes, automatically |
 | Skill | `delegation-ladder`, triggered by its description | Yes, automatically |
 
-The hook and the skill work immediately, no action needed. The system-prompt
-layer does not — nothing prompts you to set it up. It's also the layer that
-matters most: it's the only one that sits inside the system prompt itself,
-where it outranks Claude Code's hard-coded "do not call the AgentTool unless
-the user requested it" restriction by recency and specificity. Without it,
-the hook and skill can *suggest* delegating, but the underlying restriction
-is still in force — delegation stays an ask-first exception rather than
-standing policy.
+The hook and skill work immediately. The system-prompt layer is optional and
+must be installed deliberately; without it, Claude Code follows its normal
+authorization policy.
 
 To enable it, run:
 
@@ -40,7 +36,17 @@ To enable it, run:
 This previews the change with `--dry-run`, asks for confirmation, then edits
 your shell rc file. Run it deliberately, once, after installing the plugin.
 
-## What the installer does to your machine
+## Install in Codex
+
+Add this repository as a Codex marketplace, then install `code-general`. Codex
+uses `.codex-plugin/plugin.json` and the shared `skills/` directory. It ignores
+the Claude-only command, hook, shell wrapper, and delegation canon.
+
+Codex does not need post-install canon setup. The skill respects the active
+Codex host, repository, and user instructions and uses only collaboration tools
+and model presets exposed by the current session.
+
+## What the Claude installer does to your machine
 
 `skills/delegation-ladder/scripts/install-canon.sh` (invoked by the slash
 command above, or directly):
@@ -116,11 +122,12 @@ yourself if you want it gone.
 | Component | Path |
 |---|---|
 | Skill `delegation-ladder` | `skills/delegation-ladder/SKILL.md` |
+| Claude Code adapter | `skills/delegation-ladder/references/claude-code.md` |
+| Codex adapter | `skills/delegation-ladder/references/codex.md` |
 | Command `install-delegation-canon` | `commands/install-delegation-canon.md` |
 | Hook (SessionStart) | `hooks/hooks.json` → `hooks/delegation-pointer.sh` |
 
 ## Scope of the grant
 
-Granted, standing: the Agent tool, including several agents dispatched in
-parallel in one message. Not granted: the Workflow tool and deep-research —
-those keep their own per-task opt-in.
+The optional canon grants standing use of Claude Code's Agent tool. It does not
+grant Workflow or deep-research, and it has no effect in Codex.

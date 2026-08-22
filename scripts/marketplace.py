@@ -3,7 +3,7 @@
 
 Subcommands:
     validate                          check the whole repo for consistency
-    bump <plugin-id> <level>          bump a plugin's version in all five places
+    bump <plugin-id> <level>          bump a plugin's version at every sync point
     new-plugin <id> <name> <desc>     scaffold and register a new plugin
 
 Standard library only. The YAML files in this repo are written by these scripts
@@ -24,6 +24,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 INDEX = REPO / "index.yaml"
 MARKETPLACE = REPO / ".claude-plugin" / "marketplace.json"
+CODEX_MARKETPLACE = REPO / ".agents" / "plugins" / "marketplace.json"
 README = REPO / "README.md"
 PLUGINS_DIR = REPO / "plugins"
 
@@ -285,11 +286,16 @@ def plugin_dirs() -> list[str]:
 
 
 def version_sites(plugin_id: str) -> list[tuple[str, str | None]]:
-    """The four plugin-scoped version fields, as (label, value) pairs."""
+    """The five plugin-scoped version fields, as (label, value) pairs."""
     sites: list[tuple[str, str | None]] = []
 
     pj = PLUGINS_DIR / plugin_id / ".claude-plugin" / "plugin.json"
     sites.append((rel(pj), read_json(pj).get("version") if pj.is_file() else None))
+
+    codex_pj = PLUGINS_DIR / plugin_id / ".codex-plugin" / "plugin.json"
+    sites.append(
+        (rel(codex_pj), read_json(codex_pj).get("version") if codex_pj.is_file() else None)
+    )
 
     py = PLUGINS_DIR / plugin_id / "plugin.yaml"
     sites.append((rel(py), parse_yaml(py).get("version") if py.is_file() else None))
@@ -323,6 +329,7 @@ def cmd_validate(_argv: list[str]) -> int:
         return condition
 
     market = read_json(MARKETPLACE)
+    codex_market = read_json(CODEX_MARKETPLACE)
     index = parse_yaml(INDEX)
 
     try:
@@ -333,15 +340,24 @@ def cmd_validate(_argv: list[str]) -> int:
     on_disk = set(plugin_dirs())
     in_index = {p.get("id") for p in (index.get("plugins") or [])}
     in_market = {p.get("name") for p in market.get("plugins", [])}
+    in_codex_market = {p.get("name") for p in codex_market.get("plugins", [])}
 
     for missing in sorted(on_disk - in_index):
         errors.append(f"plugins/{missing}/ exists but is not registered in {rel(INDEX)}")
     for missing in sorted(on_disk - in_market):
         errors.append(f"plugins/{missing}/ exists but is not registered in {rel(MARKETPLACE)}")
+    for missing in sorted(on_disk - in_codex_market):
+        errors.append(
+            f"plugins/{missing}/ exists but is not registered in {rel(CODEX_MARKETPLACE)}"
+        )
     for ghost in sorted(in_index - on_disk):
         errors.append(f"{rel(INDEX)} lists '{ghost}' but plugins/{ghost}/ does not exist")
     for ghost in sorted(in_market - on_disk):
         errors.append(f"{rel(MARKETPLACE)} lists '{ghost}' but plugins/{ghost}/ does not exist")
+    for ghost in sorted(in_codex_market - on_disk):
+        errors.append(
+            f"{rel(CODEX_MARKETPLACE)} lists '{ghost}' but plugins/{ghost}/ does not exist"
+        )
 
     readme = README.read_text() if README.is_file() else ""
     skill_count = 0
@@ -350,18 +366,52 @@ def cmd_validate(_argv: list[str]) -> int:
     for pid in sorted(on_disk):
         root = PLUGINS_DIR / pid
         pj_path = root / ".claude-plugin" / "plugin.json"
+        codex_pj_path = root / ".codex-plugin" / "plugin.json"
         py_path = root / "plugin.yaml"
 
         if not check(pj_path.is_file(), f"{pid}: missing {rel(pj_path)}"):
+            continue
+        if not check(codex_pj_path.is_file(), f"{pid}: missing {rel(codex_pj_path)}"):
             continue
         if not check(py_path.is_file(), f"{pid}: missing {rel(py_path)}"):
             continue
 
         pj = read_json(pj_path)
+        codex_pj = read_json(codex_pj_path)
         py = parse_yaml(py_path)
 
         check(pj.get("name") == pid, f"{rel(pj_path)}: name is {pj.get('name')!r}, expected {pid!r}")
         check(bool(pj.get("description")), f"{rel(pj_path)}: description is empty")
+        check(
+            codex_pj.get("name") == pid,
+            f"{rel(codex_pj_path)}: name is {codex_pj.get('name')!r}, expected {pid!r}",
+        )
+        check(bool(codex_pj.get("description")), f"{rel(codex_pj_path)}: description is empty")
+        author = codex_pj.get("author") or {}
+        check(
+            isinstance(author.get("name"), str) and bool(author["name"].strip()),
+            f"{rel(codex_pj_path)}: author.name is required",
+        )
+        interface = codex_pj.get("interface") or {}
+        for field in (
+            "displayName",
+            "shortDescription",
+            "longDescription",
+            "developerName",
+            "category",
+        ):
+            check(
+                isinstance(interface.get(field), str) and bool(interface[field].strip()),
+                f"{rel(codex_pj_path)}: interface.{field} must be a non-empty string",
+            )
+        for field in ("capabilities", "defaultPrompt"):
+            values = interface.get(field)
+            check(
+                isinstance(values, list)
+                and bool(values)
+                and all(isinstance(value, str) and value.strip() for value in values),
+                f"{rel(codex_pj_path)}: interface.{field} must be a non-empty string list",
+            )
         check(py.get("name") == pid, f"{rel(py_path)}: name is {py.get('name')!r}, expected {pid!r}")
         check(bool(py.get("display_name")), f"{rel(py_path)}: display_name is empty")
 
@@ -374,6 +424,33 @@ def cmd_validate(_argv: list[str]) -> int:
                 f"expected {expected_source!r}",
             )
 
+        codex_entry = next(
+            (p for p in codex_market.get("plugins", []) if p.get("name") == pid), None
+        )
+        if codex_entry is not None:
+            source = codex_entry.get("source") or {}
+            policy = codex_entry.get("policy") or {}
+            check(
+                source.get("source") == "local"
+                and source.get("path") == f"./plugins/{pid}",
+                f"{rel(CODEX_MARKETPLACE)} entry '{pid}': expected local source "
+                f"'./plugins/{pid}'",
+            )
+            check(
+                policy.get("installation")
+                in {"NOT_AVAILABLE", "AVAILABLE", "INSTALLED_BY_DEFAULT"},
+                f"{rel(CODEX_MARKETPLACE)} entry '{pid}': invalid policy.installation",
+            )
+            check(
+                policy.get("authentication") in {"ON_INSTALL", "ON_USE"},
+                f"{rel(CODEX_MARKETPLACE)} entry '{pid}': invalid policy.authentication",
+            )
+            check(
+                isinstance(codex_entry.get("category"), str)
+                and bool(codex_entry["category"].strip()),
+                f"{rel(CODEX_MARKETPLACE)} entry '{pid}': category must be a non-empty string",
+            )
+
         idx_entry = next(
             (p for p in (index.get("plugins") or []) if p.get("id") == pid), None
         )
@@ -384,7 +461,7 @@ def cmd_validate(_argv: list[str]) -> int:
                 f"expected 'plugins/{pid}'",
             )
 
-        # The five-file version invariant.
+        # Every plugin-scoped version must agree.
         sites = version_sites(pid)
         values = {v for _, v in sites if v is not None}
         if len(values) > 1:
@@ -571,20 +648,26 @@ def cmd_bump(argv: list[str]) -> int:
     pj["version"] = new
     write_json(pj_path, pj)
 
-    # 2. plugins/<id>/plugin.yaml
+    # 2. plugins/<id>/.codex-plugin/plugin.json
+    codex_pj_path = PLUGINS_DIR / plugin_id / ".codex-plugin" / "plugin.json"
+    codex_pj = read_json(codex_pj_path)
+    codex_pj["version"] = new
+    write_json(codex_pj_path, codex_pj)
+
+    # 3. plugins/<id>/plugin.yaml
     py_path = PLUGINS_DIR / plugin_id / "plugin.yaml"
     py = parse_yaml(py_path)
     py["version"] = new
     py_path.write_text(render_plugin_yaml(py))
 
-    # 3 + 4. marketplace.json: the plugin entry and the top-level version
+    # 4 + 5. marketplace.json: the plugin entry and the top-level version
     for entry in market.get("plugins", []):
         if entry.get("name") == plugin_id:
             entry["version"] = new
     market["version"] = new_top
     write_json(MARKETPLACE, market)
 
-    # 5. index.yaml
+    # 6. index.yaml
     index = parse_yaml(INDEX)
     for entry in index.get("plugins") or []:
         if entry.get("id") == plugin_id:
@@ -619,8 +702,11 @@ def cmd_new_plugin(argv: list[str]) -> int:
         raise Fail(f"plugins/{plugin_id}/ already exists")
 
     market = read_json(MARKETPLACE)
+    codex_market = read_json(CODEX_MARKETPLACE)
     if any(p.get("name") == plugin_id for p in market.get("plugins", [])):
         raise Fail(f"{rel(MARKETPLACE)} already has an entry named {plugin_id!r}")
+    if any(p.get("name") == plugin_id for p in codex_market.get("plugins", [])):
+        raise Fail(f"{rel(CODEX_MARKETPLACE)} already has an entry named {plugin_id!r}")
     index = parse_yaml(INDEX)
     plugins = index.get("plugins") or []
     if any(p.get("id") == plugin_id for p in plugins):
@@ -629,12 +715,32 @@ def cmd_new_plugin(argv: list[str]) -> int:
     version = "0.1.0"
 
     (root / ".claude-plugin").mkdir(parents=True)
+    (root / ".codex-plugin").mkdir()
     (root / "skills").mkdir()
     (root / "skills" / ".gitkeep").write_text("")
 
     write_json(
         root / ".claude-plugin" / "plugin.json",
         {"name": plugin_id, "description": description, "version": version},
+    )
+    write_json(
+        root / ".codex-plugin" / "plugin.json",
+        {
+            "name": plugin_id,
+            "description": description,
+            "version": version,
+            "author": {"name": "jatitoam"},
+            "skills": "./skills/",
+            "interface": {
+                "displayName": display_name,
+                "shortDescription": description,
+                "longDescription": description,
+                "developerName": "jatitoam",
+                "category": "Productivity",
+                "capabilities": ["Skills"],
+                "defaultPrompt": [f"Use the {display_name} skills for this task."],
+            },
+        },
     )
     (root / "plugin.yaml").write_text(
         render_plugin_yaml(
@@ -665,6 +771,16 @@ def cmd_new_plugin(argv: list[str]) -> int:
     )
     write_json(MARKETPLACE, market)
 
+    codex_market.setdefault("plugins", []).append(
+        {
+            "name": plugin_id,
+            "source": {"source": "local", "path": f"./plugins/{plugin_id}"},
+            "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+            "category": "Productivity",
+        }
+    )
+    write_json(CODEX_MARKETPLACE, codex_market)
+
     plugins.append(
         {
             "id": plugin_id,
@@ -681,10 +797,12 @@ def cmd_new_plugin(argv: list[str]) -> int:
 
     print(f"Created plugins/{plugin_id}/ at version {version}\n")
     print(f"  plugins/{plugin_id}/.claude-plugin/plugin.json")
+    print(f"  plugins/{plugin_id}/.codex-plugin/plugin.json")
     print(f"  plugins/{plugin_id}/plugin.yaml")
     print(f"  plugins/{plugin_id}/skills/")
     print(f"  registered in {rel(INDEX)}")
     print(f"  registered in {rel(MARKETPLACE)} (top-level version bumped)")
+    print(f"  registered in {rel(CODEX_MARKETPLACE)}")
     print("\nNext:")
     print(f"  1. Add skills under plugins/{plugin_id}/skills/<skill-id>/SKILL.md")
     print(f"  2. List each one under 'skills:' in plugins/{plugin_id}/plugin.yaml")

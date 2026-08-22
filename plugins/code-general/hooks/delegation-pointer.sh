@@ -13,10 +13,9 @@ if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
 fi
 
 cat <<'EOF'
-Delegation is standing authorized policy for this user — requested in advance,
-for every session. Before any multi-step task, planning or execution, invoke the
-skill `code-general:delegation-ladder` and follow it. Do not ask permission to
-spawn subagents and do not treat delegating as an exception. The Workflow tool
-and deep-research are NOT covered by this grant and keep their own per-task
-opt-in.
+For work with substantial independent parts or a need for independent review,
+invoke `code-general:delegation-ladder` before dispatching. The skill and this
+hook grant no permission to use subagents; follow active user, repository, and
+host authorization. Standing authorization exists only when the user separately
+installs the optional Claude delegation canon.
 EOF
