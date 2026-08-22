@@ -1,0 +1,20 @@
+{
+  "name": "ai-plugins",
+  "interface": {
+    "displayName": "AI Plugins"
+  },
+  "plugins": [
+    {
+      "name": "code-general",
+      "source": {
+        "source": "local",
+        "path": "./plugins/code-general"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

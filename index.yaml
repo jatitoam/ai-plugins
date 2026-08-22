@@ -3,9 +3,9 @@ plugins:
     path: plugins/code-general
     display_name: Code General
     description: >
-      Delegation and orchestration policy — the delegation ladder, and the
-      canon that authorizes it.
-    version: 0.2.0
+      Cross-agent delegation and orchestration policy with Claude Code and
+      Codex adapters.
+    version: 0.3.0
     skills:
       - delegation-ladder
     hooks:

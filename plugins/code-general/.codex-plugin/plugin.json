@@ -1,0 +1,32 @@
+{
+  "name": "code-general",
+  "version": "0.3.0",
+  "description": "Cross-agent delegation and orchestration policy with host-specific adapters.",
+  "author": {
+    "name": "jatitoam",
+    "url": "https://github.com/jatitoam"
+  },
+  "repository": "https://github.com/jatitoam/ai-plugins",
+  "license": "MIT",
+  "keywords": [
+    "delegation",
+    "subagents",
+    "orchestration"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Code General",
+    "shortDescription": "Portable delegation and orchestration guidance",
+    "longDescription": "Routes substantial independent work to suitable subagents while respecting each host's tools and authorization model.",
+    "developerName": "jatitoam",
+    "category": "Productivity",
+    "capabilities": [
+      "Delegation",
+      "Orchestration"
+    ],
+    "websiteURL": "https://github.com/jatitoam/ai-plugins",
+    "defaultPrompt": [
+      "Decide whether this work should use subagents."
+    ]
+  }
+}
