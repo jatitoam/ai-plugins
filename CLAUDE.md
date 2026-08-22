@@ -26,7 +26,8 @@ plugins/<plugin-id>/
 │   ├── scripts/         # Scripts invoked during skill execution
 │   └── references/      # Shared or host-specific runtime context
 ├── commands/<name>.md   # Slash commands, exposed as /<plugin-id>:<name> (optional)
-└── hooks/hooks.json     # Hooks the plugin registers with the harness (optional)
+├── hooks/hooks.json     # Hooks the plugin registers with the harness (optional)
+└── tests/check-*.py     # Contract tests run by scripts/validate.sh (optional)
 ```
 
 Component directories live at the plugin root — never inside `.claude-plugin/`,
@@ -48,7 +49,7 @@ Skills may ship `scripts/` (in any language) and `references/`; the skill body s
 |--------|---------------|-------------|
 | `scripts/new-plugin.sh <plugin-id> "<display name>" "<description>" [category]` | Scaffolds both client manifests at version `0.1.0` and registers the plugin in both marketplaces and `index.yaml` (`category` defaults to `general`) | Starting a new plugin |
 | `scripts/bump.sh <plugin-id> <major\|minor\|patch>` | Bumps a plugin's version across all six sync points atomically | After any change to a plugin's behavior or metadata |
-| `scripts/validate.sh` | Checks registry consistency, version-field agreement, and skill/frontmatter correctness across the whole repo | Before every commit |
+| `scripts/validate.sh` | Checks registry consistency, version-field agreement, and skill/frontmatter correctness across the whole repo, then runs every plugin's own `tests/check-*` contract tests | Before every commit |
 
 `.claude/commands/bump.md` exposes `scripts/bump.sh` as the `/bump` slash command.
 
@@ -65,6 +66,14 @@ Skills may ship `scripts/` (in any language) and `references/`; the skill body s
 Every plugin directory is registered in both registries and vice versa; the five plugin-scoped version fields agree and all six version fields are valid semver; both client manifests and `plugin.yaml` match the directory; each declared skill exists on disk with valid frontmatter; no skill directory is undeclared; registry skill lists agree; and each plugin has a README row. It exits non-zero on any failure.
 
 For hooks it additionally checks: no undeclared `hooks/*.json` file on disk; every declared hook path exists; the `hooks:` lists in `plugin.yaml` and `index.yaml` match; and each `hooks.json` is valid JSON whose `${CLAUDE_PLUGIN_ROOT}/…` command references resolve to files that exist **and are executable**. A hook injects behavior into every session, so it is never allowed to go undeclared.
+
+### Per-plugin contract tests
+
+`marketplace.py` stays generic — it must never special-case a plugin id. A plugin that needs to guard its own invariants ships them as an executable `plugins/<plugin-id>/tests/check-<name>.py` (or `check-<name>.sh`). `validate.sh` discovers and runs every one of them after the generic checks and fails if any does, so there is still a single command to run before committing.
+
+Write these as **structural** checks: assert that a required instruction, ordering, or link is present, not that a sentence is spelled a particular way. Prose in skills and hooks is meant to be edited; a copy edit must not fail the build, while deleting a load-bearing instruction must. Each failure message should say what breaks, not just what is missing.
+
+`plugins/code-general/tests/check-delegation-contract.py` is the worked example: it guards the delegation-ladder skill's trigger breadth, the host-adapter-before-gate ordering, and the SessionStart hook's agreement with the optional system-prompt canon.
 
 ## Versioning
 
