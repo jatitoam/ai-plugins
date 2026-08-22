@@ -505,6 +505,75 @@ def cmd_validate(_argv: list[str]) -> int:
                     f"{rel(smd)}: frontmatter name is {fm['name']!r}, expected {sid!r}",
                 )
 
+            if pid == "code-general" and sid == "delegation-ladder":
+                description = str(fm.get("description", "")).lower()
+                for trigger in (
+                    "more than one step",
+                    "implementing a feature",
+                    "fixing a bug",
+                    "refactoring",
+                    "debugging",
+                    "investigating",
+                    "reviewing code",
+                    "exploring",
+                    "mapping a codebase",
+                    "researching",
+                    "writing docs",
+                    "plans",
+                    "tickets",
+                    "migrating data",
+                    "independent parts",
+                    "delegate",
+                    "subagents",
+                    "spawn agents",
+                    "parallelize",
+                    "fan out",
+                    "choose a model",
+                    "who should do the work",
+                ):
+                    check(
+                        trigger in description,
+                        f"{rel(smd)}: delegation trigger {trigger!r} is missing",
+                    )
+
+                skill_text = smd.read_text()
+                adapter_at = skill_text.find("## Load the host adapter first")
+                gate_at = skill_text.find("## Run the gate")
+                check(
+                    adapter_at >= 0 and gate_at >= 0 and adapter_at < gate_at,
+                    f"{rel(smd)}: host adapter must load before the delegation gate",
+                )
+                check(
+                    "[references/claude-code.md](references/claude-code.md)"
+                    in skill_text[:gate_at],
+                    f"{rel(smd)}: Claude adapter link must appear before the gate",
+                )
+                normalized_skill = " ".join(skill_text.lower().split())
+                check(
+                    "means delegate. a single known edit or direct answer stays inline."
+                    in normalized_skill,
+                    f"{rel(smd)}: multi-step delegation and inline gate contract is missing",
+                )
+
+                claude_adapter = sdir / "references" / "claude-code.md"
+                if check(
+                    claude_adapter.is_file(),
+                    f"{pid}: delegation ladder is missing {rel(claude_adapter)}",
+                ):
+                    adapter_text = " ".join(claude_adapter.read_text().lower().split())
+                    for contract in (
+                        "| deep investigation, difficult design, adversarial review | opus |",
+                        "| contained implementation, authoring, codebase mapping | sonnet |",
+                        "| mechanical bulk, dry-runs, simple verification | haiku |",
+                        "prefix the agent description with the selected model's human-readable name when fleetview is available",
+                        "ask before dispatching more than about eight agents at once or writing outside the current repository",
+                        "[delegation-canon.md](delegation-canon.md)",
+                    ):
+                        check(
+                            contract in adapter_text,
+                            f"{rel(claude_adapter)}: required contract {contract!r} is missing",
+                        )
+
         # Skills on disk that were never declared.
         skills_dir = root / "skills"
         if skills_dir.is_dir():
@@ -541,6 +610,23 @@ def cmd_validate(_argv: list[str]) -> int:
                     found_rel in declared_hook_set,
                     f"{pid}: {found_rel} exists but is not listed in {rel(py_path)}",
                 )
+
+        if pid == "code-general":
+            pointer = root / "hooks" / "delegation-pointer.sh"
+            if check(pointer.is_file(), f"{pid}: missing {rel(pointer)}"):
+                pointer_text = " ".join(pointer.read_text().lower().split())
+                check(
+                    "grant no permission" not in pointer_text,
+                    f"{rel(pointer)}: hook must not contradict the optional standing canon",
+                )
+                for contract in (
+                    "install-canon.sh\" --sync",
+                    "when installed, supplies standing agent-tool authorization; otherwise follow the active authorization policy",
+                ):
+                    check(
+                        contract in pointer_text,
+                        f"{rel(pointer)}: required canon contract {contract!r} is missing",
+                    )
 
         # index.yaml hooks list must mirror plugin.yaml.
         if idx_entry is not None:

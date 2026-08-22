@@ -13,9 +13,8 @@ if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
 fi
 
 cat <<'EOF'
-For work with substantial independent parts or a need for independent review,
-invoke `code-general:delegation-ladder` before dispatching. The skill and this
-hook grant no permission to use subagents; follow active user, repository, and
-host authorization. Standing authorization exists only when the user separately
-installs the optional Claude delegation canon.
+Before any multi-step task, planning or execution, invoke
+`code-general:delegation-ladder` and follow its Claude Code adapter. The optional
+system-prompt canon, when installed, supplies standing Agent-tool authorization;
+otherwise follow the active authorization policy.
 EOF
