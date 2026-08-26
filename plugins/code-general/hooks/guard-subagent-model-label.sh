@@ -5,7 +5,9 @@
 #
 # The bracket-prefix convention is documented in the delegation canon, but prose
 # in the prompt layer decays over a long session. This makes it deterministic.
-# See skills/subagent-model-labels/SKILL.md for the convention and the rationale.
+# See skills-claude/subagent-model-labels/SKILL.md for the convention and the
+# rationale. It lives outside skills/ because that tree is portable: Codex
+# scans it wholesale, and this guard is Claude-only.
 set -uo pipefail
 
 # Escape hatch for sessions whose workflow predates the convention.

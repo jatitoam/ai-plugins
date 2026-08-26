@@ -2,17 +2,29 @@
 """Contract test for the code-general subagent-model-labels skill + guard.
 
 Guards the wiring that a silent edit could rot without any single file
-looking wrong: the skill quietly dropped out of plugin.yaml's or the root
-index.yaml's `skills:` list (loads fine standalone, never triggers via the
-plugin), the `PreToolUse` matcher on `Agent` in hooks.json got removed or
-mangled while touching the file (the guard stops running, nobody notices --
-a guard that never denies looks identical to no guard), adding the new
+looking wrong: the `PreToolUse` matcher on `Agent` in hooks.json got removed
+or mangled while touching the file (the guard stops running, nobody notices
+-- a guard that never denies looks identical to no guard), adding the new
 matcher-group displaced the pre-existing `SessionStart` entry that points at
-delegation-pointer.sh, one of the two guard scripts lost its executable bit
-(silently fails open on every platform that respects the bit), or the
-`guard-subagent-model-label.sh` wrapper lost its `CODE_GENERAL_LABEL_GUARD`
-escape hatch or its `command -v python3` fail-open check (a machine without
-python3 gets every subagent dispatch blocked instead of waved through).
+delegation-pointer.sh, a guard script lost its executable bit (silently
+fails open on every platform that respects the bit), the wrapper lost its
+`CODE_GENERAL_LABEL_GUARD` escape hatch or its `command -v python3`
+fail-open check (a machine without python3 gets every dispatch blocked
+instead of waved through), or the host gate slipped -- the Claude-only skill
+drifting back under skills/, vanishing from the Claude manifest's roots, or
+the Codex manifest widening past ./skills/ and exposing it.
+
+Scoped to this plugin's own invariants. Registration in plugin.yaml and
+index.yaml, frontmatter validity, and undeclared skills on disk are checked
+generically by scripts/validate.sh for every plugin -- including a scan of
+every `skills*` root, so a Claude-only skill cannot go unregistered -- and
+are deliberately not repeated here. Two assertions for one breakage means
+two places to update when the generic check moves.
+
+One exception is deliberate: guard-subagent-model-label.py's executable bit.
+validate.sh checks the executability of scripts named in hooks.json, and the
+.py is invoked by the wrapper rather than by the harness, so nothing generic
+sees it.
 
 The second half runs `guard-subagent-model-label.py` for real, as a
 subprocess, over a table of dispatch payloads, and asserts on its stdout --
@@ -33,20 +45,25 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 REPO = PLUGIN_ROOT.parent.parent
-SKILL_DIR = PLUGIN_ROOT / "skills" / "subagent-model-labels"
+# Claude-only on purpose: the guard is a Claude Code PreToolUse hook on the
+# Agent tool, so the skill explaining it is meaningless under Codex. Codex
+# hardcodes its skill scan to <plugin>/skills, so staying out of that directory
+# is the only mechanism that actually keeps it off the Codex load path.
+CLAUDE_SKILLS_DIR = PLUGIN_ROOT / "skills-claude"
+PORTABLE_SKILLS_DIR = PLUGIN_ROOT / "skills"
+SKILL_DIR = CLAUDE_SKILLS_DIR / "subagent-model-labels"
+CLAUDE_MANIFEST = PLUGIN_ROOT / ".claude-plugin" / "plugin.json"
+CODEX_MANIFEST = PLUGIN_ROOT / ".codex-plugin" / "plugin.json"
 SKILL = SKILL_DIR / "SKILL.md"
 GUARD_SH = PLUGIN_ROOT / "hooks" / "guard-subagent-model-label.sh"
 GUARD_PY = PLUGIN_ROOT / "hooks" / "guard-subagent-model-label.py"
 HOOKS_JSON = PLUGIN_ROOT / "hooks" / "hooks.json"
-PLUGIN_YAML = PLUGIN_ROOT / "plugin.yaml"
-INDEX_YAML = REPO / "index.yaml"
 DECIDER = GUARD_PY
 
 errors: list[str] = []
@@ -71,45 +88,20 @@ def read(path: Path) -> str | None:
     return path.read_text()
 
 
-def frontmatter_field(text: str, field: str) -> str:
-    m = re.match(r"^---\n(.*?)\n---\n", text, re.DOTALL)
-    if not m:
-        return ""
-    block = m.group(1)
-    f = re.search(rf"^{field}:\s*(.+)$", block, re.M)
-    return f.group(1).strip() if f else ""
+def read_json(path: Path) -> dict | None:
+    text = read(path)
+    if text is None:
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        errors.append(f"{rel(path)}: not valid JSON ({e})")
+        return None
+    if not isinstance(data, dict):
+        errors.append(f"{rel(path)}: expected a JSON object at the top level")
+        return None
+    return data
 
-
-def skills_block(text: str) -> str:
-    """The indented body following a `skills:` key, tolerant of nesting depth.
-
-    Deliberately a regex over the YAML text rather than a PyYAML parse -- the
-    existing delegation contract test has no YAML dependency and this one
-    shouldn't introduce one either.
-    """
-    m = re.search(r"(?m)^([ \t]*)skills:[ \t]*\n((?:\1[ \t]+.*\n?)*)", text)
-    return m.group(2) if m else ""
-
-
-def entry_block(text: str, entry_id: str) -> str:
-    """The text of a `- id: <entry_id>` list item, up to its next sibling."""
-    m = re.search(rf"(?m)^([ \t]*)-\s*id:\s*{re.escape(entry_id)}\b", text)
-    if not m:
-        return ""
-    indent = m.group(1)
-    next_m = re.search(rf"(?m)^{re.escape(indent)}-\s*id:", text[m.end() :])
-    end = m.end() + next_m.start() if next_m else len(text)
-    return text[m.start() : end]
-
-
-# ---------------------------------------------------------------- SKILL.md
-skill = read(SKILL)
-if skill is not None:
-    check(
-        frontmatter_field(skill, "name") == SKILL_DIR.name,
-        f"{rel(SKILL)}: frontmatter `name:` must equal the skill directory "
-        f"name ({SKILL_DIR.name!r})",
-    )
 
 # ---------------------------------------------------------------- hooks.json
 hooks_text = read(HOOKS_JSON)
@@ -172,26 +164,69 @@ for script in (GUARD_SH, GUARD_PY):
             "hook command fails to launch",
         )
 
-# --------------------------------------------------- skill registration
-plugin_yaml_text = read(PLUGIN_YAML)
-if plugin_yaml_text is not None:
+# ------------------------------------------------------------- host gating
+# Codex scans <plugin>/skills wholesale and offers no per-skill exclusion, so
+# the only structural gate is the skill's location. Claude Code's `skills`
+# manifest field is additive to the default skills/ scan, so the Claude-only
+# root has to be named there or the skill silently stops loading.
+check(
+    not (PORTABLE_SKILLS_DIR / "subagent-model-labels").exists(),
+    f"{rel(PORTABLE_SKILLS_DIR)}/subagent-model-labels/ must not exist: Codex "
+    "scans skills/ wholesale, so a Claude-only skill placed there loads under "
+    "Codex, where the Agent tool, PreToolUse hooks and the label convention it "
+    "documents do not exist",
+)
+check(
+    SKILL.is_file(),
+    f"{rel(SKILL)}: the Claude-only skill must live under "
+    f"{rel(CLAUDE_SKILLS_DIR)}/, off the Codex skill-scan path",
+)
+
+claude_manifest = read_json(CLAUDE_MANIFEST)
+if claude_manifest is not None:
+    declared_roots = claude_manifest.get("skills")
+    if isinstance(declared_roots, str):
+        declared_roots = [declared_roots]
+    roots = {str(r).strip("./") for r in declared_roots or []}
     check(
-        "subagent-model-labels" in skills_block(plugin_yaml_text),
-        f"{rel(PLUGIN_YAML)}: skills: list must register subagent-model-labels",
+        CLAUDE_SKILLS_DIR.name in roots,
+        f"{rel(CLAUDE_MANIFEST)}: the `skills` list must name "
+        f"{CLAUDE_SKILLS_DIR.name!r}, otherwise Claude Code never scans it and "
+        "the skill stops loading for the one host it is written for",
+    )
+    check(
+        PORTABLE_SKILLS_DIR.name in roots,
+        f"{rel(CLAUDE_MANIFEST)}: the `skills` list must still name "
+        f"{PORTABLE_SKILLS_DIR.name!r}. Redundant in the common case -- the "
+        "default scan of skills/ was measured to happen even when the list "
+        "omits it -- but the docs carve out a marketplace entry resolving to "
+        "the marketplace root, where the list replaces the default instead of "
+        "adding to it. Naming both roots is correct under either behaviour, "
+        "and the cost of being wrong is the portable skill silently vanishing",
     )
 
-index_text = read(INDEX_YAML)
-if index_text is not None:
-    entry = entry_block(index_text, "code-general")
-    if check(
-        bool(entry),
-        f"{rel(INDEX_YAML)}: no '- id: code-general' entry found",
-    ):
-        check(
-            "subagent-model-labels" in skills_block(entry),
-            f"{rel(INDEX_YAML)}: the code-general entry's skills: list must "
-            "register subagent-model-labels",
-        )
+codex_manifest = read_json(CODEX_MANIFEST)
+if codex_manifest is not None:
+    # Exactly the portable root, not merely "not the Claude-only one". Codex's
+    # `skills` takes a single string and supplements its hardcoded skills/ scan,
+    # so anything broader -- "./", a parent, a second root -- can reach a
+    # host-scoped tree while a not-equal-to-skills-claude check still passes.
+    codex_skills = str(codex_manifest.get("skills") or "").strip("./")
+    check(
+        codex_skills == PORTABLE_SKILLS_DIR.name,
+        f"{rel(CODEX_MANIFEST)}: `skills` must be exactly "
+        f"'./{PORTABLE_SKILLS_DIR.name}/', got {codex_manifest.get('skills')!r}. "
+        "Any broader path can expose a host-scoped root such as "
+        f"{CLAUDE_SKILLS_DIR.name}/ to Codex",
+    )
+
+skill_body = read(SKILL) or ""
+check(
+    "Codex" in skill_body,
+    f"{rel(SKILL)}: must state its host scope in the body -- the directory "
+    "gate is structural, but a reader who opens the file on another host needs "
+    "to be told in band that it does not apply there",
+)
 
 # --------------------------------------------------- wrapper fail-open shape
 guard_sh_text = read(GUARD_SH)

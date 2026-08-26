@@ -40,8 +40,11 @@ FAMILIES = {
     "fable": "Fable",
 }
 
+# Built from FAMILIES rather than spelled out again: two hand-maintained lists
+# of the same families drift, and the way they drift is silent -- a family the
+# regex accepts but FAMILIES does not simply stops being cross-checked.
 LABEL = re.compile(
-    r"^\[\s*(?P<family>opus|sonnet|haiku|fable)"
+    r"^\[\s*(?P<family>" + "|".join(map(re.escape, FAMILIES)) + r")"
     r"(?P<version>\s+\d+(?:\.\d+)*)?\s*\]\s+\S",
     re.IGNORECASE,
 )
