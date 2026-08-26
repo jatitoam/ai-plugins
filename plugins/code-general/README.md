@@ -4,6 +4,11 @@ Cross-agent delegation and orchestration policy. The `delegation-ladder` skill
 contains a portable routing gate, then loads a Claude Code or Codex adapter for
 host-specific tools, models, and authorization rules.
 
+On Claude Code it also ships `subagent-model-labels`: a `PreToolUse` guard that
+denies any `Agent` dispatch whose `description` does not open with the model it
+runs as, e.g. `[Sonnet 5] Map webhook handlers`, plus the skill explaining the
+convention. That pair is Claude-only and does not load under Codex.
+
 ## Install in Claude Code
 
 ```bash
@@ -39,8 +44,9 @@ your shell rc file. Run it deliberately, once, after installing the plugin.
 ## Install in Codex
 
 Add this repository as a Codex marketplace, then install `code-general`. Codex
-uses `.codex-plugin/plugin.json` and the shared `skills/` directory. It ignores
-the Claude-only command, hook, shell wrapper, and delegation canon.
+uses `.codex-plugin/plugin.json` and the shared `skills/` directory — so it gets
+`delegation-ladder` and nothing else. It ignores the Claude-only command, hooks,
+shell wrapper, delegation canon, and the `skills-claude/` tree.
 
 Codex does not need post-install canon setup. The skill respects the active
 Codex host, repository, and user instructions and uses only collaboration tools
@@ -119,13 +125,20 @@ yourself if you want it gone.
 
 ## What's in the plugin
 
-| Component | Path |
-|---|---|
-| Skill `delegation-ladder` | `skills/delegation-ladder/SKILL.md` |
-| Claude Code adapter | `skills/delegation-ladder/references/claude-code.md` |
-| Codex adapter | `skills/delegation-ladder/references/codex.md` |
-| Command `install-delegation-canon` | `commands/install-delegation-canon.md` |
-| Hook (SessionStart) | `hooks/hooks.json` → `hooks/delegation-pointer.sh` |
+| Component | Path | Hosts |
+|---|---|---|
+| Skill `delegation-ladder` | `skills/delegation-ladder/SKILL.md` | Both |
+| Claude Code adapter | `skills/delegation-ladder/references/claude-code.md` | Both |
+| Codex adapter | `skills/delegation-ladder/references/codex.md` | Both |
+| Skill `subagent-model-labels` | `skills-claude/subagent-model-labels/SKILL.md` | Claude Code |
+| Command `install-delegation-canon` | `commands/install-delegation-canon.md` | Claude Code |
+| Hook (SessionStart) | `hooks/hooks.json` → `hooks/delegation-pointer.sh` | Claude Code |
+| Hook (PreToolUse on `Agent`) | `hooks/hooks.json` → `hooks/guard-subagent-model-label.sh` | Claude Code |
+
+`skills/` is the portable tree both hosts load. `skills-claude/` holds skills
+that describe Claude-only machinery; Codex scans `<plugin>/skills` wholesale and
+has no per-skill exclusion, so keeping them out of that directory is what gates
+them.
 
 ## Scope of the grant
 

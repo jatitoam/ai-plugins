@@ -3,10 +3,12 @@ display_name: Code General
 description: >
   Cross-agent delegation and orchestration policy with Claude Code and Codex
   adapters.
-version: 0.3.0
+version: 0.4.0
 skills:
   - id: delegation-ladder
     path: skills/delegation-ladder
+  - id: subagent-model-labels
+    path: skills-claude/subagent-model-labels
 commands:
   - install-delegation-canon
 hooks:
