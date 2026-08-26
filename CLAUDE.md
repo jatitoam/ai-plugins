@@ -25,6 +25,7 @@ plugins/<plugin-id>/
 │   ├── SKILL.md         # Portable agent instructions
 │   ├── scripts/         # Scripts invoked during skill execution
 │   └── references/      # Shared or host-specific runtime context
+├── skills-claude/<skill-id>/   # Claude-only skills (optional, same shape)
 ├── commands/<name>.md   # Slash commands, exposed as /<plugin-id>:<name> (optional)
 ├── hooks/hooks.json     # Hooks the plugin registers with the harness (optional)
 └── tests/check-*.py     # Contract tests run by scripts/validate.sh (optional)
@@ -36,6 +37,47 @@ which holds only `plugin.json`.
 - `index.yaml` — top-level registry; must be updated when adding a plugin
 - `.claude-plugin/marketplace.json` — marketplace distribution metadata
 - `.agents/plugins/marketplace.json` — Codex marketplace distribution metadata
+
+## Host-scoped skills
+
+`skills/` is the portable tree: **both** Claude Code and Codex load everything in
+it. A skill that describes machinery only one host has — the Agent tool, a
+`PreToolUse` hook, FleetView — is noise or worse on the other, so it does not
+belong there.
+
+Codex hardcodes its skill scan to `<plugin>/skills` and offers no per-skill
+exclusion, so **the directory is the only gate**. Claude Code's `skills` field in
+`.claude-plugin/plugin.json` accepts a list of directories and is additive to its
+own default `skills/` scan, so a Claude-only root is picked up by naming it:
+
+```jsonc
+// plugins/<plugin-id>/.claude-plugin/plugin.json
+"skills": ["./skills/", "./skills-claude/"]
+```
+
+List `./skills/` explicitly even though it is scanned by default. Measured
+behavior is that the default scan happens regardless — a plugin declaring only
+`./skills-claude/` still loads everything in `skills/` — so this is redundant in
+the common case. It is there for the documented exception: a marketplace entry
+whose source resolves to the marketplace root makes the field *replace* the
+default rather than add to it. Naming both roots is correct under either
+behavior, and the cost of guessing wrong is the portable skill silently
+disappearing.
+
+Rules for a host-scoped skill:
+
+- Put it in `skills-claude/<skill-id>/`, never in `skills/`.
+- Declare it in `plugin.yaml` and `index.yaml` exactly like any other skill; the
+  `path:` carries the different root. `validate.sh` scans every `skills*` root
+  for undeclared skills, so it cannot silently go unregistered.
+- Say the scope **in the file too**. The directory keeps it off the other host's
+  load path, but anyone reading the file directly — or grepping the repo — needs
+  the first line to say which host it applies to. Structure and prose both.
+- Leave `.codex-plugin/plugin.json`'s `"skills": "./skills/"` alone. It must
+  never point at a host-scoped root.
+
+`plugins/code-general/skills-claude/subagent-model-labels/` is the worked
+example, guarded by `tests/check-subagent-label-contract.py`.
 
 ## How Skills Work
 
@@ -56,7 +98,7 @@ Skills may ship `scripts/` (in any language) and `references/`; the skill body s
 ## Adding a New Plugin
 
 1. Run `scripts/new-plugin.sh <plugin-id> "<display name>" "<description>" [category]` — this creates `plugin.yaml`, both client manifests, an empty `skills/` directory, and registers the plugin in `index.yaml` and both marketplaces.
-2. Add skills under `plugins/<plugin-id>/skills/<skill-id>/SKILL.md`. The skill's frontmatter `name` must equal its directory name.
+2. Add skills under `plugins/<plugin-id>/skills/<skill-id>/SKILL.md`. The skill's frontmatter `name` must equal its directory name. A skill that only makes sense on one host goes in a host-scoped root instead — see **Host-scoped skills** below.
 3. List each skill in **both** registries — under `skills:` in `plugins/<plugin-id>/plugin.yaml` (as `- id:` / `path:`) and under `skills:` in that plugin's `index.yaml` entry (as a plain id). The scaffold script does not do this; `validate.sh` fails if the two lists disagree or if a skill directory is unlisted. Do the same under `hooks:` in both files for any `hooks/hooks.json` the plugin ships, and `chmod +x` every script the hook invokes.
 4. **Update `README.md`** — add a row to the Plugins table with the plugin id, description, and skill/command/mcp counts.
 5. Run `scripts/validate.sh` and fix any reported issues before committing.

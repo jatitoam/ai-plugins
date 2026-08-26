@@ -505,14 +505,18 @@ def cmd_validate(_argv: list[str]) -> int:
                     f"{rel(smd)}: frontmatter name is {fm['name']!r}, expected {sid!r}",
                 )
 
-        # Skills on disk that were never declared.
-        skills_dir = root / "skills"
-        if skills_dir.is_dir():
-            declared_ids = {s["id"] for s in declared if isinstance(s, dict) and "id" in s}
+        # Skills on disk that were never declared. Every skill root is scanned,
+        # not just skills/: a host-scoped root such as skills-claude/ is still a
+        # place a skill can go undeclared and silently stop loading.
+        declared_ids = {s["id"] for s in declared if isinstance(s, dict) and "id" in s}
+        for skills_dir in sorted(
+            d for d in root.glob("skills*") if d.is_dir()
+        ):
             for found in sorted(d.name for d in skills_dir.iterdir() if d.is_dir()):
                 check(
                     found in declared_ids,
-                    f"{pid}: skills/{found}/ exists but is not listed in {rel(py_path)}",
+                    f"{pid}: {skills_dir.name}/{found}/ exists but is not listed "
+                    f"in {rel(py_path)}",
                 )
 
         # index.yaml skill list must mirror plugin.yaml.

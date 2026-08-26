@@ -8,7 +8,7 @@ skills:
   - id: delegation-ladder
     path: skills/delegation-ladder
   - id: subagent-model-labels
-    path: skills/subagent-model-labels
+    path: skills-claude/subagent-model-labels
 commands:
   - install-delegation-canon
 hooks:

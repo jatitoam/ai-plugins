@@ -6,10 +6,24 @@ description: >
   install, verify, disable, or troubleshoot the label guard. Also use when
   asked why an Agent call was denied, what the bracket prefix means, which
   model tier a delegated task should carry, or whether the guard is loaded.
-  Covers the convention, its enforcement hook, and the escape hatch.
+  Covers the convention, its enforcement hook, and the escape hatch. Claude
+  Code only: it describes the Agent tool and a PreToolUse hook, neither of
+  which exists on other hosts.
 ---
 
 # Subagent Model Labels
+
+**Claude Code only.** Everything here — the Agent tool's `description` field,
+the `PreToolUse` hook that enforces it, FleetView — is Claude Code machinery.
+On Codex or any other host, this skill does not apply: stop reading and follow
+[../../skills/delegation-ladder/SKILL.md](../../skills/delegation-ladder/SKILL.md)
+and that host's own adapter. Codex's adapter says so directly: it needs no
+AgentTool label or FleetView convention.
+
+That is why this skill lives in `skills-claude/` rather than the portable
+`skills/` tree. Codex scans `<plugin>/skills` wholesale and has no per-skill
+exclusion, so the directory *is* the gate; Claude Code picks it up because
+`.claude-plugin/plugin.json` names `./skills-claude/` in its `skills` list.
 
 Every subagent dispatch carries the model it runs as, at the front of its
 `description`, in square brackets:
@@ -27,7 +41,7 @@ description stays its normal 3-5 words.
 ## Why this is a hook and not just a rule
 
 The convention lives in prose in
-[../delegation-ladder/references/delegation-canon.md](../delegation-ladder/references/delegation-canon.md).
+[../../skills/delegation-ladder/references/delegation-canon.md](../../skills/delegation-ladder/references/delegation-canon.md).
 Prose in the prompt layer is a soft constraint: adherence decays as a session
 grows, because salience falls off with distance from the instruction, not with
 context fill. A rule that holds for the first ten dispatches and lapses on the
@@ -43,7 +57,7 @@ So the convention ships twice, doing two different jobs:
 Neither substitutes for the other. The hook cannot judge whether `[Haiku 4.5]`
 was the right call for a deep audit; it only knows the label is present and
 self-consistent. Tier selection stays a judgment call, governed by
-[../delegation-ladder/SKILL.md](../delegation-ladder/SKILL.md).
+[../../skills/delegation-ladder/SKILL.md](../../skills/delegation-ladder/SKILL.md).
 
 ## What the guard accepts
 

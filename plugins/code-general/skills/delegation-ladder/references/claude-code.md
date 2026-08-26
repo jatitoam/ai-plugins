@@ -24,8 +24,11 @@ When Sonnet leads, it keeps sequencing, judgment, and precision edits; Haiku
 handles mechanical work and dry-runs. Escalate to Opus for deep investigation or
 high-stakes adversarial review.
 
-Prefix the Agent description with the selected model's human-readable name when
-FleetView is available, for example `[Sonnet] Map webhook handlers`.
+Prefix the Agent description with the selected model's human-readable name, for
+example `[Sonnet] Map webhook handlers`. This plugin ships a `PreToolUse` guard
+that denies an unlabelled dispatch, so treat the label as required rather than
+as a FleetView nicety. The `subagent-model-labels` skill covers the convention,
+what the guard accepts, and how to turn it off.
 
 ## Optional standing authorization
 
