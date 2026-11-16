@@ -27,6 +27,7 @@ index.yaml                   # Top-level registry of all plugins
 | Plugin | Description | Skills | Commands | Hooks | MCP Servers |
 |--------|-------------|--------|----------|-------|-------------|
 | code-general | Cross-agent delegation and orchestration policy with Claude Code and Codex adapters. Claude's standing-authorization canon is optional. | 2 | 1 | 1 | 0 |
+| claude-move | Move Claude Code memories and chat transcripts between laptops through a shared synced folder. Claude Code only. | 1 | 0 | 0 | 0 |
 
 ## Plugin Concepts
 

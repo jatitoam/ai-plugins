@@ -1,0 +1,9 @@
+{
+  "name": "claude-move",
+  "description": "Move Claude Code memories and chat transcripts between laptops through a shared synced folder.",
+  "version": "0.1.0",
+  "skills": [
+    "./skills/",
+    "./skills-claude/"
+  ]
+}

@@ -4,13 +4,20 @@
     "name": "jatitoam"
   },
   "description": "Cross-agent plugins for AI-augmented engineering workflows",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "plugins": [
     {
       "name": "code-general",
       "source": "./plugins/code-general",
       "description": "Cross-agent delegation and orchestration policy with Claude Code and Codex adapters.",
       "version": "0.4.0",
+      "category": "general"
+    },
+    {
+      "name": "claude-move",
+      "source": "./plugins/claude-move",
+      "description": "Move Claude Code memories and chat transcripts between laptops through a shared synced folder.",
+      "version": "0.1.0",
       "category": "general"
     }
   ]

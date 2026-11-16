@@ -1,0 +1,12 @@
+name: claude-move
+display_name: Claude Move
+description: >
+  Move Claude Code memories and chat transcripts between laptops through a
+  shared synced folder.
+version: 0.1.0
+skills:
+  - id: claude-move
+    path: skills-claude/claude-move
+commands: []
+hooks: []
+mcp_servers: []
