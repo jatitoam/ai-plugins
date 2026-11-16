@@ -1,0 +1,22 @@
+{
+  "name": "claude-move",
+  "description": "Move Claude Code memories and chat transcripts between laptops through a shared synced folder.",
+  "version": "0.1.0",
+  "author": {
+    "name": "jatitoam"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Claude Move",
+    "shortDescription": "Move Claude Code memories and chat transcripts between laptops through a shared synced folder.",
+    "longDescription": "Move Claude Code memories and chat transcripts between laptops through a shared synced folder.",
+    "developerName": "jatitoam",
+    "category": "Productivity",
+    "capabilities": [
+      "Skills"
+    ],
+    "defaultPrompt": [
+      "Use the Claude Move skills for this task."
+    ]
+  }
+}

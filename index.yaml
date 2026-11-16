@@ -11,3 +11,13 @@ plugins:
       - subagent-model-labels
     hooks:
       - hooks/hooks.json
+  - id: claude-move
+    path: plugins/claude-move
+    display_name: Claude Move
+    description: >
+      Move Claude Code memories and chat transcripts between laptops through
+      a shared synced folder.
+    version: 0.1.0
+    skills:
+      - claude-move
+    hooks: []
